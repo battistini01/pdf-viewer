@@ -9,16 +9,47 @@ from bson import ObjectId
 
 s3 = boto3.client('s3')
 
-def lambda_handler(event, context):
+client = None
+db = None
 
-    media_bucket = os.environ.get('MEDIA_BUCKET')
-    mongo_uri = os.environ.get('MONGO_URI')
+def get_mongo_client():
+    global client, db
     
-    if media_bucket is None:
-        raise Exception('MEDIA_BUCKET environment variable not set')
+    if client is not None:
+        return client, db
     
-    if mongo_uri is None:
-        raise Exception('MONGO_URI environment variable not set')
+    # Fetch env vars only once too
+    config_bucket = os.environ.get('CONFIG_BUCKET')
+    node_env = os.environ.get('NODE_ENV')
+    
+    # Fetch MongoDB URI from S3
+    key = f"mongodb/mongodb_credentials_{node_env}.json"
+    configResponse = s3.get_object(Bucket=config_bucket, Key=key)
+    body = configResponse["Body"].read().decode("utf-8")
+    db_credentials = json.loads(body)
+    mongo_uri = db_credentials.get("MONGO_URL")
+    if not mongo_uri:
+        raise Exception("MONGO_URL not found in credentials")
+    
+    # FOR LOCAL TESTING ONLY: Use the commented line below to allow invalid certificates
+    # client = MongoClient(mongo_uri, ServerSelectionTimeoutMS=5000, tls=True, tlsAllowInvalidCertificates=True)
+    client = MongoClient(mongo_uri, ServerSelectionTimeoutMS=5000)
+    db_name = 'data' if node_env == 'development' else 'data-prod'
+    db = client[db_name]
+    
+    return client, db
+
+def lambda_handler(event, context):
+    
+    config_bucket = os.environ.get('CONFIG_BUCKET')
+    node_env = os.environ.get('NODE_ENV')
+    media_url = os.environ.get('MEDIA_URL')
+    
+    if not config_bucket or not node_env or not media_url:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": "Environment variables not set"})
+        }
     
     postid = event['pathParameters']['postid']
 
@@ -28,8 +59,7 @@ def lambda_handler(event, context):
         return {"statusCode": 400, "body": json.dumps({"message": "Invalid post id: " + postid})}
 
     try:
-        client = MongoClient(mongo_uri, ServerSelectionTimeoutMS=5000)
-        db = client['data']
+        db = get_mongo_client()[1]
         collection = db['posts']
 
         post = collection.find_one({ 'type': 'pdf', '_id': ObjectId(postid) })
@@ -42,16 +72,10 @@ def lambda_handler(event, context):
         
         post['_id'] = str(post['_id'])
 
-        url = s3.generate_presigned_url(
-            ClientMethod='get_object',
-            Params={'Bucket': media_bucket, 'Key': f"{post['brand']}/posts/orig/{post['_id']}.pdf"},
-            ExpiresIn=24 * 3600  # 24 hours in seconds
-        )
-
         return {
             'statusCode': 302,
             "headers": {
-                "Location": url
+                "Location": f"{media_url}/{post['brand']}/posts/orig/{post['_id']}.pdf"
             },
             'body': ""
         }
