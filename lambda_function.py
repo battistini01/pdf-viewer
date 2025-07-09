@@ -20,15 +20,7 @@ def lambda_handler(event, context):
     if mongo_uri is None:
         raise Exception('MONGO_URI environment variable not set')
     
-    action = event['pathParameters']['action']
     postid = event['pathParameters']['postid']
-    filename = event['pathParameters']['filename']
-
-    match action:
-        case 'view':
-            action = 'inline'
-        case 'download':
-            action = 'attachment'
 
     try:
         postid = ObjectId(postid)
@@ -50,21 +42,18 @@ def lambda_handler(event, context):
         
         post['_id'] = str(post['_id'])
 
-        s3_response = s3.get_object(
-            Bucket=media_bucket,
-            Key=f'{post["brand"]}/posts/orig/{post["_id"]}.pdf'
+        url = s3.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={'Bucket': media_bucket, 'Key': f"{post['brand']}/posts/orig/{post['_id']}.pdf"},
+            ExpiresIn=24 * 3600  # 24 hours in seconds
         )
 
-        pdf = s3_response['Body'].read()
-
         return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/pdf',
-                'Content-Disposition': f'{action}; filename="{filename}"'
+            'statusCode': 302,
+            "headers": {
+                "Location": url
             },
-            'isBase64Encoded': True,
-            'body': base64.b64encode(pdf).decode('utf-8')
+            'body': ""
         }
     
     except ConnectionFailure as e:

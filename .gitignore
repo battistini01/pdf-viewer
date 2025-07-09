@@ -73,6 +73,7 @@ docs/_build/
 
 # AWS Lambda build package
 package/
+lambda_package.zip
 
 # PyBuilder
 .pybuilder/
