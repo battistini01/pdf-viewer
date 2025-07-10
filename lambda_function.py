@@ -73,9 +73,10 @@ def lambda_handler(event, context):
         post['_id'] = str(post['_id'])
 
         return {
-            'statusCode': 302,
+            'statusCode': 200,
             "headers": {
-                "Location": f"{media_url}/{post['brand']}/posts/orig/{post['_id']}.pdf",
+                "X-Origin-Forward": f"{media_url}",
+                "X-Path-Forward": f"/{post['brand']}/posts/orig/{post['_id']}.pdf",
                 "Cache-Control": "max-age=31536000, public",
             },
             'body': ""
